@@ -25,7 +25,7 @@ app.use(cors(corsOptions));
 // Middleware
 
 app.use(cors()); //Permite peticiones desde otros dominios
-Access-Control-Allow-Origin; 'https://gravitygravedad.github.io'; // Permite peticiones desde ''
+accessControlAllowOrigin: 'https://gravitygravedad.github.io'; //Permite peticiones desde cualquier origen
 app.use(express.json()); //Permite recibir datos en formato JSON
 
 // Middleware para logging (Registro de las peticiones)
