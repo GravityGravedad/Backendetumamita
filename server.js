@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const { db, initializeDatabase } = require('./database');
-
 // Crea la aplicacion 'express'
 
 const app = express();
@@ -15,18 +14,18 @@ const isDevelopment = process.env.NODE_ENV !== 'production';
 
 const corsOptions = {
     origin: isDevelopment
-    ?['http://localhost:3000', 'http://127.0.0.1:3000']
+    ?['http://localhost:3000', 'null', 'https://backendetumamita.onrender.com',  'http://127.0.0.1:3000']
     :['https://gravitygravedad.github.io'], //Link de GitHub Pages
    credentials: true
 }
+
 
 app.use(cors(corsOptions));
 
 // Middleware
 
-app.use(cors()); //Permite peticiones desde otros dominios
-accessControlAllowOrigin: 'https://gravitygravedad.github.io'; //Permite peticiones desde cualquier origen
 app.use(express.json()); //Permite recibir datos en formato JSON
+
 
 // Middleware para logging (Registro de las peticiones)
 app.use((req, res, next) => {
