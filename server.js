@@ -14,7 +14,7 @@ const isDevelopment = process.env.NODE_ENV !== 'production';
 
 const corsOptions = {
     origin: isDevelopment
-    ?['http://localhost:3000', 'null', 'https://backendetumamita.onrender.com',  'http://127.0.0.1:3000']
+    ?['http://localhost:3000', 'null', 'http://127.0.0.1:3000']
     :['https://gravitygravedad.github.io'], //Link de GitHub Pages
    credentials: true
 }
