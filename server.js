@@ -33,7 +33,9 @@ app.use((req, res, next) => {
     next();
 });
 
-// Rutas de autenticación
+
+// Verificar que la tarea pertenece al usuario autenticado
+const selectQuery = `SELECT user_id FROM tasks WHERE id = ?`;
 
 // Registro de usuarios
 
@@ -45,58 +47,54 @@ app.post('/api/register', (req, res) => {
         return res.status(400).json({ error: 'Usuario y contraseña son requeridos' });
     }
 
-    // VULNERABILIDAD DE SQL INJECTION HECHA A PROPOSITO, NO HACER EN ENTORNOS REALES
+    const query = `INSERT INTO users (username, password) VALUES (?, ?)`;
 
-    const query = `INSERT INTO users (username, password) VALUES ('${username}', '${password}')`;
-
-    db.run(query, function(err) {
-if (err) {
-// VULNERABILIDAD DELIBERADA: Exposición de información sensible
-console.error('Error en registro:', err);
-return res.status(500).json({
-error: 'Error al registrar usuario',
-details: err.message, // ¡Esto expone información sensible!
-query: query // ¡Esto también!
-});
-}
-res.status(201).json({
-message: 'Usuario registrado exitosamente',
-userId: this.lastID
-});
-});
+db.run(query, [username, password], function(err) {
+        if (err) {
+            console.error('Error en registro:', err);
+            return res.status(500).json({
+                error: 'Error al registrar usuario',
+                details: err.message
+            });
+        }
+        res.status(201).json({
+            message: 'Usuario registrado exitosamente',
+            userId: this.lastID
+        });
+    });
 });
 // Login de usuarios
 app.post('/api/login', (req, res) => {
-const { username, password } = req.body;
-if (!username || !password) {
-return res.status(400).json({ error: 'Usuario y contraseña son requeridos' });
-}
-// VULNERABILIDAD DELIBERADA: SQL Injection
-// Un atacante podría usar: admin' OR '1'='1' --
-const query = `SELECT * FROM users WHERE username = '${username}' AND password =
-'${password}'`;
-db.get(query, (err, user) => {
-if (err) {
-console.error('Error en login:', err);
-return res.status(500).json({
-error: 'Error en el servidor',
-details: err.message,
-query: query
-});
-}
-if (!user) {
-return res.status(401).json({ error: 'Credenciales inválidas' });
-}
-// VULNERABILIDAD DELIBERADA: Exposición de contraseña
-res.json({
-message: 'Login exitoso',
-user: {
-id: user.id,
-username: user.username,
-password: user.password // ¡Nunca devuelvas la contraseña!
-}
-});
-});
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Usuario y contraseña son requeridos' });
+    }
+
+    const query = `SELECT * FROM users WHERE username = ? AND password = ?`;
+
+    db.get(query, [username, password], (err, user) => {
+        if (err) {
+            console.error('Error en login:', err);
+            return res.status(500).json({
+                error: 'Error en el servidor',
+                details: err.message
+            });
+        }
+
+        if (!user) {
+            return res.status(401).json({ error: 'Credenciales inválidas' });
+        }
+
+        // Eliminar la exposición de la contraseña en la respuesta
+        res.json({
+            message: 'Login exitoso',
+            user: {
+                id: user.id,
+                username: user.username
+            }
+        });
+    });
 });
 // RUTAS DE TAREAS
 // Obtener tareas del usuario
@@ -107,9 +105,9 @@ return res.status(400).json({ error: 'user_id es requerido' });
 }
 // VULNERABILIDAD DELIBERADA: IDOR (Insecure Direct Object Reference)
 // No verificamos si el usuario actual puede ver estas tareas
-const query = `SELECT * FROM tasks WHERE user_id = ${user_id} ORDER BY created_at
+const query = `SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at
 DESC`;
-db.all(query, (err, tasks) => {
+db.all(query, [authenticatedUserId], (err, tasks) => {
 if (err) {
 console.error('Error obteniendo tareas:', err);
 return res.status(500).json({
@@ -128,22 +126,25 @@ if (!title || !user_id) {
 return res.status(400).json({ error: 'Título y user_id son requeridos' });
 }
 // VULNERABILIDAD DELIBERADA: SQL Injection
-const query = `INSERT INTO tasks (title, description, user_id) VALUES ('${title}',
-'${description || ''}', ${user_id})`;
-db.run(query, function(err) {
-if (err) {
-console.error('Error creando tarea:', err);
-return res.status(500).json({
-error: 'Error al crear tarea',
-details: err.message,
-query: query
-});
-}
-res.status(201).json({
-message: 'Tarea creada exitosamente',
-taskId: this.lastID
-});
-});
+    const escapedTitle = title.replace(/'/g, "''");
+    const escapedDescription = (description || '').replace(/'/g, "''");
+    const query = `INSERT INTO tasks (user_id, title, description) VALUES (${user_id}, '${escapedTitle}', '${escapedDescription}')`;
+    
+    db.run(query, function(err) {
+        if (err) {
+            console.error('Error creando tarea:', err);
+            return res.status(500).json({ 
+                error: 'Error al crear tarea',
+                details: err.message,
+                query: query
+            });
+        }
+        
+        res.status(201).json({ 
+            message: 'Tarea creada exitosamente',
+            taskId: this.lastID 
+        });
+    });
 });
 // Actualizar tarea
 app.put('/api/tasks/:id', (req, res) => {
@@ -169,24 +170,60 @@ res.json({ message: 'Tarea actualizada exitosamente' });
 });
 // Eliminar tarea
 app.delete('/api/tasks/:id', (req, res) => {
-const taskId = req.params.id;
-// VULNERABILIDAD DELIBERADA: IDOR
-// No verificamos si el usuario actual puede eliminar esta tarea
-const query = `DELETE FROM tasks WHERE id = ${taskId}`;
-db.run(query, function(err) {
-if (err) {
-console.error('Error eliminando tarea:', err);
-return res.status(500).json({
-error: 'Error al eliminar tarea',
-details: err.message,
-query: query
-});
-}
-if (this.changes === 0) {
-return res.status(404).json({ error: 'Tarea no encontrada' });
-}
-res.json({ message: 'Tarea eliminada exitosamente' });
-});
+    const taskId = req.params.id;
+    
+    // En una aplicación real, el user_id vendría del token de autenticación
+    // Para esta corrección en el contexto de CIB0, necesitamos una forma de obtener el user_id
+    // del usuario autenticado. Podríamos pasarlo en los encabezados o en el cuerpo de la solicitud.
+    
+    // Para este ejemplo, asumiremos que el frontend envía el user_id en el encabezado
+    // Rutas de autenticación
+
+const authenticatedUserId = req.get('X-User-ID');
+
+    if (!authenticatedUserId) {
+        return res.status(401).json({ error: 'Usuario no autenticado' });
+    }
+    
+    
+    db.get(selectQuery, [taskId], (err, task) => {
+        if (err) {
+            console.error('Error verificando propiedad de tarea:', err);
+            return res.status(500).json({
+                error: 'Error al verificar propiedad de tarea',
+                details: err.message
+            });
+        }
+        
+        if (!task) {
+            return res.status(404).json({ error: 'Tarea no encontrada' });
+        }
+        
+        // Verificar si el usuario autenticado es el propietario de la tarea
+        if (task.user_id != authenticatedUserId) { // Usar != para permitir comparación de string y número
+            return res.status(403).json({ error: 'No tienes permiso para eliminar esta tarea' });
+        }
+        
+        // Si es el propietario, proceder con la eliminación
+        const deleteQuery = `DELETE FROM tasks WHERE id = ? AND user_id = ?`;
+        
+        db.run(deleteQuery, [taskId, authenticatedUserId], function(err) {
+            if (err) {
+                console.error('Error eliminando tarea:', err);
+                return res.status(500).json({
+                    error: 'Error al eliminar tarea',
+                    details: err.message
+                });
+            }
+            
+            if (this.changes === 0) {
+                // Esto no debería pasar si la verificación anterior fue exitosa, pero por seguridad
+                return res.status(404).json({ error: 'Tarea no encontrada' });
+            }
+            
+            res.json({ message: 'Tarea eliminada exitosamente' });
+        });
+    });
 });
 // Middleware de manejo de errores global
 app.use((error, req, res, next) => {
